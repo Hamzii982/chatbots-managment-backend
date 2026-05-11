@@ -3,6 +3,7 @@ import os
 import shutil
 from typing import List
 
+from fastapi import logger
 from sqlalchemy.orm import Session
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_anthropic import ChatAnthropic
@@ -109,6 +110,11 @@ def extract_pdf_text(path: str) -> str:
 
     except Exception as e:
         raise ValueError(f"Failed to parse PDF {path}: {str(e)}")
+    
+def extract_md_text(file_path: str) -> str:
+    """Read a markdown file and return its raw text content."""
+    with open(file_path, "r", encoding="utf-8") as f:
+        return f.read()
 
 def build_or_get_vectorstore(chatbot_id: int, texts: List[str], embeddings=None) -> Chroma:
     """Create or load a Chroma vectorstore for the chatbot.
@@ -202,7 +208,7 @@ def answer_with_rag(chatbot, query: str, db: Session, chat_history: list = None)
     return {"response": response.content, "sources": [d.page_content for d in docs], "context": context}
 
 
-def stream_rag_response(chatbot, db: Session, query: str, chat_history: list = None):
+# def stream_rag_response(chatbot, db: Session, query: str, chat_history: list = None):
     """
     Generator that yields text chunks from the LLM.
     """

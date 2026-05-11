@@ -1,4 +1,5 @@
 from pydantic import BaseModel, Field
+from typing import Optional
 
 class ChatbotBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=255, description="Chatbot name")
@@ -26,6 +27,8 @@ class ChatbotResponse(ChatbotBase):
 
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=10000, description="User message")
+    thread_id: Optional[int] = None
+    disable_memory: bool = False
 
 
 class ChatResponse(BaseModel):

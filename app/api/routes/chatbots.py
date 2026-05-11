@@ -8,12 +8,14 @@ from app.models.chatbot import Chatbot
 from app.models.chatbot_documents import ChatbotDocument
 from app.models.model_config import ModelConfig
 from app.models.message import Message
+from app.models.thread import Thread
 from app.schemas.chatbot import ChatbotBase, ChatbotCreate, ChatbotResponse, ChatRequest, ChatResponse
 from app.services.chatbot_service import generate_mock_response, generate_rag_response
-from app.services.langchain_rag import chunk_text, extract_pdf_text, reset_vectorstore, stream_rag_response
+from app.services.langchain_rag import chunk_text, extract_pdf_text, reset_vectorstore, extract_md_text
 from app.core.config import settings
 from fastapi.responses import StreamingResponse
 import json
+import app.graph.instance as graph_instance
 
 import os
 import uuid
@@ -27,6 +29,11 @@ UPLOAD_DIR = "uploads/chatbots"
 VECTOR_ROOT = ".vectorstores"
 MAX_UPLOAD_SIZE_BYTES = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
 ALLOWED_EXTENSIONS = set(ext.lower() for ext in settings.ALLOWED_FILE_EXTENSIONS)
+ 
+CONTENT_TYPE_MAP = {
+    ".pdf": "application/pdf",
+    ".md": "text/markdown",
+}
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
@@ -137,7 +144,7 @@ def reset_chatbot_history(chatbot_id: int, db: Session = Depends(get_db)):
     return {"message": f"Successfully cleared history for chatbot '{chatbot.name}'."}
 
 @router.post("/{chatbot_id}/chat")
-def chat(chatbot_id: int, request: ChatRequest, db: Session = Depends(get_db)):
+async def chat(chatbot_id: int, request: ChatRequest, db: Session = Depends(get_db)):
     try:
         chatbot = db.query(Chatbot).get(chatbot_id)
         if not chatbot:
@@ -161,36 +168,110 @@ def chat(chatbot_id: int, request: ChatRequest, db: Session = Depends(get_db)):
         # treat 'vector' or 'hybrid' retriever types
         if "vector" in rt or "hybrid" in rt:
             chat_history = []
-            if chatbot.short_term_memory:
+            thread_id = None
+            
+            # ── NO MEMORY (playground override) ──────────────────────────
+            if request.disable_memory:
+                chat_history = [("human", request.message)]
+            
+            # ── LONG TERM MEMORY ──────────────────────────────────────────
+            elif chatbot.long_term_memory:
+                thread_id = request.thread_id
+
+                # Create new thread if none provided
+                if not thread_id:
+                    thread = Thread(chatbot_id=chatbot_id, title=request.message[:60])
+                    db.add(thread)
+                    db.commit()
+                    db.refresh(thread)
+                    thread_id = thread.id
+
+                # Save user message
+                db.add(Message(chatbot_id=chatbot_id, thread_id=thread_id, content=request.message, is_user=True))
+                db.commit()
+
+                # Build full history for this thread
+                past = db.query(Message)\
+                    .filter(Message.chatbot_id == chatbot_id, Message.thread_id == thread_id)\
+                    .order_by(Message.created_at.asc()).limit(50).all()
+                chat_history = [("human" if m.is_user else "ai", m.content) for m in past]
+            
+            # ── SHORT TERM MEMORY ─────────────────────────────────────────
+            elif chatbot.short_term_memory:
+                # Always use the latest thread, create one if none exists
+                latest_thread = db.query(Thread)\
+                    .filter(Thread.chatbot_id == chatbot_id)\
+                    .order_by(Thread.updated_at.desc()).first()
+
+                if not latest_thread:
+                    latest_thread = Thread(chatbot_id=chatbot_id, title=request.message[:60])
+                    db.add(latest_thread)
+                    db.commit()
+                    db.refresh(latest_thread)
+
+                thread_id = latest_thread.id
+                
                 # SAVE USER MESSAGE TO DB
-                user_msg = Message(chatbot_id=chatbot_id, content=request.message, is_user=True)
+                user_msg = Message(chatbot_id=chatbot_id, thread_id=thread_id, content=request.message, is_user=True)
                 db.add(user_msg)
                 db.commit()
                 
                 # Fetch chat history
-                past_messages = db.query(Message).filter(Message.chatbot_id == chatbot_id)\
-                                .order_by(Message.created_at.desc()).limit(50).all()
+                past_messages = db.query(Message).filter(Message.chatbot_id == chatbot_id, Message.thread_id == thread_id)\
+                                .order_by(Message.created_at.asc())\
+                                .limit(50).all()
                 
                 # Reverse to chronological order
-                for msg in reversed(past_messages):
+                for msg in past_messages:
                     chat_history.append(("human" if msg.is_user else "ai", msg.content))
-            
-            def event_generator():
-                full_response = ""
-                # Get the stream from our RAG logic
-                stream = stream_rag_response(chatbot, db, request.message, chat_history)
-                
-                for chunk in stream:
-                    full_response += chunk
-                    # Standard SSE format: data: {...}\n\n
-                    yield f"data: {json.dumps({'content': chunk})}\n\n"
-                
-                # After stream ends, save the full bot response to DB
-                if chatbot.short_term_memory:
-                    ai_msg = Message(chatbot_id=chatbot_id, content=full_response, is_user=False)
-                    db.add(ai_msg)
-                    db.commit()
                     
+            else:
+                chat_history = [("human", request.message)]
+                    
+            # Pass DB session in config so nodes can use it
+            config = {
+                "configurable": {
+                    "thread_id": str(thread_id) if thread_id else str(chatbot_id), 
+                    "db": db 
+                }
+            }
+            
+            async def event_generator():
+                inputs = {
+                    "messages": chat_history, 
+                    "chatbot_id": chatbot_id
+                }
+                full_response = []
+                
+                # Yield thread_id first so frontend knows which thread this belongs to
+                yield f"data: {json.dumps({'thread_id': thread_id})}\n\n"
+                
+                # Use version="v2" for the most consistent schema
+                async for event in graph_instance.app_graph.astream_events(
+                    inputs, 
+                    config, 
+                    version="v2"
+                ):
+                    kind = event["event"]
+
+                    # Filter for model streaming events
+                    if kind == "on_chat_model_stream":
+                        content = event["data"].get("chunk", {}).content
+                        if content:
+                            # Standard SSE format: data: {json}\n\n
+                            full_response.append(content)
+                            yield f"data: {json.dumps({'content': content})}\n\n"
+
+                # Save bot response only if memory is enabled
+                if not request.disable_memory and (chatbot.long_term_memory or chatbot.short_term_memory):
+                    db.add(Message(
+                        chatbot_id=chatbot_id,
+                        thread_id=thread_id,
+                        content="".join(full_response),
+                        is_user=False
+                    ))
+                    db.commit()
+                
                 yield "data: [DONE]\n\n"
 
             return StreamingResponse(event_generator(), media_type="text/event-stream")
@@ -207,12 +288,55 @@ def chat(chatbot_id: int, request: ChatRequest, db: Session = Depends(get_db)):
             detail="Internal server error"
         )
 
+@router.get("/{chatbot_id}/messages")
+async def get_messages(chatbot_id: int, db: Session = Depends(get_db)):
+    chatbot = db.query(Chatbot).get(chatbot_id)
+    if not chatbot:
+        raise HTTPException(status_code=404, detail="Chatbot not found")
+    
+    past_messages = (
+        db.query(Message)
+        .filter(Message.chatbot_id == chatbot_id)
+        .order_by(Message.created_at.asc())
+        .limit(50)
+        .all()
+    )
+    
+    return [
+        {
+            "role": "user" if msg.is_user else "bot",
+            "content": msg.content,
+        }
+        for msg in past_messages
+    ]
 
+@router.get("/{chatbot_id}/info")
+def get_chatbot_info(chatbot_id: int, db: Session = Depends(get_db)):
+    chatbot = db.query(Chatbot).get(chatbot_id)
+    if not chatbot:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {
+        "id": chatbot.id,
+        "name": chatbot.name,
+        "long_term_memory": chatbot.long_term_memory,
+        "short_term_memory": chatbot.short_term_memory,
+    }
+    
+@router.get("/{chatbot_id}/threads/latest/messages")
+def get_latest_thread_messages(chatbot_id: int, db: Session = Depends(get_db)):
+    thread = db.query(Thread)\
+        .filter(Thread.chatbot_id == chatbot_id)\
+        .order_by(Thread.updated_at.desc()).first()
+    if not thread:
+        return []
+    return db.query(Message)\
+        .filter(Message.thread_id == thread.id)\
+        .order_by(Message.created_at.asc()).all()
+        
 @router.get("/activated-rag", response_model=list[ChatbotResponse])
 def get_activated_rag_chatbots(db: Session = Depends(get_db)):
     # Return chatbots that are active and have a non-mock retriever
     return db.query(Chatbot).filter(Chatbot.is_active == True).filter(Chatbot.retriever_type != "mock").all()
-
 
 @router.post("/{chatbot_id}/upload-pdfs")
 def upload_pdfs(
@@ -263,6 +387,9 @@ def upload_pdfs(
                     errors.append(f"{file.filename}: Empty file.")
                     continue
 
+                # Derive content type from extension — don't trust client-supplied value
+                content_type = CONTENT_TYPE_MAP[file_ext]
+                
                 # Save file with sanitized name
                 file_id = str(uuid.uuid4())
                 path = os.path.join(UPLOAD_DIR, f"{file_id}_{os.path.basename(file.filename)}")
@@ -274,7 +401,7 @@ def upload_pdfs(
                     chatbot_id=chatbot_id,
                     filename=file.filename,
                     file_path=path,
-                    content_type=file.content_type or "application/pdf"
+                    content_type=content_type
                 )
 
                 db.add(db_doc)
@@ -358,10 +485,14 @@ def vectorize_chatbot(chatbot_id: int, db: Session = Depends(get_db)):
 
         for doc in docs:
             try:
-                text = extract_pdf_text(doc.file_path)
-                
-                if not text or len(text.strip()) < 10:
-                    logger.warning(f"Skipped unreadable PDF: {doc.file_path}")
+                ext = os.path.splitext(doc.file_path)[1].lower()
+ 
+                if ext == ".pdf":
+                    text = extract_pdf_text(doc.file_path)
+                elif ext == ".md":
+                    text = extract_md_text(doc.file_path)
+                else:
+                    logger.warning(f"Unsupported file type: {doc.file_path}")
                     failed_docs.append(doc.filename)
                     continue
 
@@ -431,3 +562,35 @@ def vectorize_chatbot(chatbot_id: int, db: Session = Depends(get_db)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Vectorization failed"
         )
+        
+
+# --- Thread Endpoints ---
+
+@router.post("/{chatbot_id}/threads")
+def create_thread(chatbot_id: int, db: Session = Depends(get_db)):
+    thread = Thread(chatbot_id=chatbot_id, title="New Chat")
+    db.add(thread)
+    db.commit()
+    db.refresh(thread)
+    return thread
+
+@router.get("/{chatbot_id}/threads")
+def list_threads(chatbot_id: int, db: Session = Depends(get_db)):
+    return db.query(Thread)\
+        .filter(Thread.chatbot_id == chatbot_id)\
+        .order_by(Thread.updated_at.desc())\
+        .all()
+
+@router.get("/{chatbot_id}/threads/{thread_id}/messages")
+def get_thread_messages(chatbot_id: int, thread_id: int, db: Session = Depends(get_db)):
+    return db.query(Message)\
+        .filter(Message.chatbot_id == chatbot_id, Message.thread_id == thread_id)\
+        .order_by(Message.created_at.asc())\
+        .all()
+
+@router.delete("/{chatbot_id}/threads/{thread_id}")
+def delete_thread(chatbot_id: int, thread_id: int, db: Session = Depends(get_db)):
+    db.query(Message).filter(Message.thread_id == thread_id).delete()
+    db.query(Thread).filter(Thread.id == thread_id).delete()
+    db.commit()
+    return {"ok": True}

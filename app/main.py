@@ -3,11 +3,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from app.api.routes import models, chatbots, system, statistics, usage, auth
+from contextlib import asynccontextmanager
+# from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from app.graph.workflow import create_graph
 from app.db.base import Base
 from app.db.session import engine
-from app.models import chatbot, model_config, message, chatbot_documents, user
+from app.models import chatbot, model_config, message, chatbot_documents, user, thread
 from app.core.config import settings
 from app.core.admin import init_admin
+import app.graph.instance as graph_instance
 import logging
 
 # Configure logging
@@ -22,12 +26,18 @@ Base.metadata.create_all(bind=engine)
 
 init_admin(logger)
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    graph_instance.app_graph = create_graph()
+    yield 
+
 app = FastAPI(
     title="AI Control Panel",
     description="RAG-based Chatbot Management System",
     version="1.0.0",
     docs_url="/api/docs",
-    openapi_url="/api/openapi.json"
+    openapi_url="/api/openapi.json",
+    lifespan=lifespan
 )
 
 app.include_router(models.router)

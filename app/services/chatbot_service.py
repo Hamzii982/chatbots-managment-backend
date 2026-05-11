@@ -4,7 +4,7 @@ def generate_mock_response(chatbot):
 
 from requests import Session
 
-from app.services.langchain_rag import answer_with_rag, stream_rag_response
+from app.services.langchain_rag import answer_with_rag
 
 
 def generate_rag_response(chatbot, db: Session, message: str, sources: list[str] | None = None, chat_history: list = None) -> dict:

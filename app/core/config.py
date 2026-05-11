@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     # File upload configuration
     MAX_UPLOAD_SIZE_MB: int = Field(default=50, ge=1, le=500, description="Max file size in MB")
     ALLOWED_FILE_EXTENSIONS: list[str] = Field(
-        default=[".pdf"],
+        default=[".pdf", ".md", ".txt"],
         description="Allowed file extensions for upload"
     )
     
