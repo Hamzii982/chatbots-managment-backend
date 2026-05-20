@@ -24,13 +24,6 @@ def get_path(chatbot_id: int):
     path = os.path.join(VSTORE_ROOT, f"chatbot_{chatbot_id}")
     os.makedirs(path, exist_ok=True)
     return path
-
-def get_vectorstore(chatbot_id: int):
-    embeddings = OpenAIEmbeddings()
-    return Chroma(
-        persist_directory=get_path(chatbot_id),
-        embedding_function=embeddings
-    )
     
 def reset_vectorstore(chatbot_id: int):
     path = get_path(chatbot_id)
@@ -57,7 +50,7 @@ def reset_vectorstore(chatbot_id: int):
     # Ensure directory exists again
     os.makedirs(path, exist_ok=True)
 
-    return get_vectorstore(chatbot_id)
+    return load_vectorstore(chatbot_id)
 
 def load_vectorstore(chatbot_id: int):
     embeddings = OpenAIEmbeddings()

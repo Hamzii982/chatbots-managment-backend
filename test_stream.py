@@ -62,7 +62,7 @@ async def test_stream():
     finally:
         db.close()
 
-asyncio.run(test_stream())
+# asyncio.run(test_stream())
 
 async def test_llm_direct():
     print("=== Testing LLM directly (no LangGraph) ===\n")
@@ -242,3 +242,48 @@ async def test_raw_chain():
         db.close()
 
 # asyncio.run(test_raw_chain())
+
+async def test_graph():
+    print("=== Starting stream test ===\n")
+
+    db = SessionLocal()
+
+    try:
+        graph = create_graph()
+
+        config = {
+            "configurable": {
+                "thread_id": "test-thread-1",
+                "db": db 
+            }
+        }
+
+        inputs = {
+            "messages": [("user", "Weißt du G183?")],  # Simulated user message
+            "chatbot_id": 1  # ← use a real chatbot ID from your DB
+        }
+
+        chunk_count = 0
+
+        # Use astream_events with version="v2"
+        async for event in graph.astream_events(inputs, config, version="v2"):
+            kind = event["event"]
+
+            # This event triggers for every single new token/word
+            if kind == "on_chat_model_stream":
+                content = event["data"]["chunk"].content
+                if content:
+                    print(content, end="", flush=True)
+
+            # Optional: See when nodes start/end
+            elif kind == "on_chain_start" and event["name"] == "model":
+                print("\n[Model started thinking...]\n")
+            elif kind == "on_chain_end" and event["name"] == "model":
+                print("\n\n[Model finished]")
+
+        print(f"\n=== Done. Got {chunk_count} chunks from 'model' node ===")
+
+    finally:
+        db.close()
+
+asyncio.run(test_graph())

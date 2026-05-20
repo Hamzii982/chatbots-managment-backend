@@ -30,6 +30,9 @@ def retrieve_context(state, config):
     retriever = get_retriever(chatbot, vect, db)
     
     docs = retriever.retrieve(user_query)[:chatbot.top_k]
+    
+    for d in docs:
+        print(f"Retrieved doc: {d.metadata.get('source', 'no source')} - {d.page_content}")
     context_text = "\n\n".join([d.page_content for d in docs])
 
     # 4. Update state with context
@@ -82,7 +85,6 @@ async def call_model(state, config):
     chain = prompt | llm
     
     # ✅ Collect chunks — LangGraph streams them token-by-token via
-    # stream_mode="messages" automatically, because streaming=True on the LLM
     chunks = []
     # Directly yield each chunk — do NOT collect into a list first
     final_message = await chain.ainvoke({

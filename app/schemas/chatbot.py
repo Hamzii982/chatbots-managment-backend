@@ -3,7 +3,7 @@ from typing import Optional
 
 class ChatbotBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=255, description="Chatbot name")
-    system_prompt: str = Field(..., min_length=10, max_length=5000, description="System prompt for the chatbot")
+    system_prompt: str = Field(..., min_length=10, max_length=12000, description="System prompt for the chatbot")
     model_id: int = Field(..., gt=0, description="Model ID (must be positive)")
     retriever_type: str = Field(default="mock", min_length=1, max_length=50, description="Retriever type")
     chunk_size: int = Field(default=500, ge=100, le=5000, description="Chunk size for documents")

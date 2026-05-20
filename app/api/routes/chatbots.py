@@ -486,7 +486,7 @@ def vectorize_chatbot(chatbot_id: int, db: Session = Depends(get_db)):
         for doc in docs:
             try:
                 ext = os.path.splitext(doc.file_path)[1].lower()
- 
+
                 if ext == ".pdf":
                     text = extract_pdf_text(doc.file_path)
                 elif ext == ".md":
