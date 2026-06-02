@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from app.api.routes import models, chatbots, system, statistics, usage, auth
+from app.api.routes import models, chatbots, system, statistics, usage, auth, ai_assist
 from contextlib import asynccontextmanager
 # from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from app.graph.workflow import create_graph
@@ -46,7 +46,7 @@ app.include_router(system.router)
 app.include_router(statistics.router)
 app.include_router(usage.router)
 app.include_router(auth.router)
-
+app.include_router(ai_assist.router)
 # Configure CORS with specific allowed origins (not wildcard)
 app.add_middleware(
     CORSMiddleware,
