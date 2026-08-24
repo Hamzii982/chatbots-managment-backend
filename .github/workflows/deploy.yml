@@ -43,7 +43,7 @@ jobs:
             rsync -a --delete --exclude="venv" --exclude=".env" /tmp/fastapi-app-testing/ ${{ secrets.APP_PATH_TESTING }}/
             rm -rf /tmp/fastapi-app-testing
             cd ${{ secrets.APP_PATH_TESTING }}
-            test -d venv || python3.12 -m venv venv
+            test -d venv || /usr/local/bin/python3.12 -m venv venv
             source venv/bin/activate
             pip install -r requirements.txt --quiet
             (lsof -ti:8080 | xargs -r kill -9) || true
