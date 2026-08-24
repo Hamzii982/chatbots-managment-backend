@@ -1,24 +1,30 @@
+import os
+
 from sqlalchemy.orm import Session
 from app.db.session import SessionLocal
-from app.models.user import User # Import your new User model
+from app.models.user import User  # Import your new User model
 from passlib.context import CryptContext
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# Dependency to get DB session for the init script
+
 def init_admin(logger=None):
     db = SessionLocal()
     try:
-        admin_user = db.query(User).filter(User.username == "admin").first()
+        admin_username = os.getenv("ADMIN_USERNAME", "admin")
+        admin_email = os.getenv("ADMIN_EMAIL", "admin@example.com")
+        admin_password = os.getenv("ADMIN_PASSWORD", "password")
+        admin_user = db.query(User).filter(User.username == admin_username).first()
+
         if not admin_user:
             logger.info("Creating default admin user...")
-            hashed_pwd = pwd_context.hash("password") # Initial password: password
+            hashed_pwd = pwd_context.hash(admin_password)
             new_admin = User(
-                username="admin",
+                username=admin_username,
                 full_name="Administrator",
-                email="smuth@zimatec.de",
+                email=admin_email,
                 hashed_password=hashed_pwd,
-                is_active=True
+                is_active=True,
             )
             db.add(new_admin)
             db.commit()

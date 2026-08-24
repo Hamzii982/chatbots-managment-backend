@@ -1,0 +1,56 @@
+# .github/workflows/deploy-testing.yml
+name: Deploy to Testing (port 8080)
+
+on:
+    push:
+        branches:
+            - main
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+
+      - name: Write SSH key to file
+        shell: powershell
+        run: |
+            $keyPath = "$env:RUNNER_TEMP\deploy_key"
+            [System.IO.File]::WriteAllText($keyPath, ($env:SSH_KEY -replace "`r", "") + "`n", [System.Text.Encoding]::ASCII)
+            icacls $keyPath /inheritance:r
+            icacls $keyPath /grant:r "$($env:USERNAME):(R)"
+            echo "KEY_PATH=$keyPath" >> $env:GITHUB_ENV
+        env:
+            SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Prepare remote temp directory
+        shell: powershell
+        run: |
+            ssh -i "$env:KEY_PATH" -p ${{ secrets.SERVER_PORT }} -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "rm -rf /tmp/fastapi-app-testing && mkdir -p /tmp/fastapi-app-testing"
+
+      - name: Copy files to server
+        shell: powershell
+        run: |
+            scp -O -i "$env:KEY_PATH" -P ${{ secrets.SERVER_PORT }} -o StrictHostKeyChecking=no -r .\* ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/tmp/fastapi-app-testing
+
+      - name: Sync code, install deps, restart test instance
+        shell: powershell
+        run: |
+            $remoteCmd = @'
+            set -e
+            mkdir -p ${{ secrets.APP_PATH_TESTING }}
+            rsync -a --delete --exclude="venv" --exclude=".env" /tmp/fastapi-app-testing/ ${{ secrets.APP_PATH_TESTING }}/
+            rm -rf /tmp/fastapi-app-testing
+            cd ${{ secrets.APP_PATH_TESTING }}
+            test -d venv || python3 -m venv venv
+            source venv/bin/activate
+            pip install -r requirements.txt --quiet
+            (lsof -ti:8080 | xargs -r kill -9) || true
+            sleep 1
+            setsid nohup venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8080 > app-testing.log 2>&1 < /dev/null &
+            disown
+            sleep 2
+            curl -sf http://localhost:8080/ -o /dev/null && echo "Testing instance is up on 8080" || echo "WARNING: instance may not have started, check app-testing.log"
+            '@
+            ssh -i "$env:KEY_PATH" -p ${{ secrets.SERVER_PORT }} -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} $remoteCmd
