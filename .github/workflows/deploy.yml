@@ -56,9 +56,6 @@ jobs:
             pip install -r requirements.txt
             echo "pip install exit: $?"
             
-            pkill -9 -f 'uvicorn app.main:app.*8089'
-            echo "pkill exit: $?"
-            
             sleep 2
             setsid nohup venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8089 > app-testing.log 2>&1 < /dev/null &
             echo "uvicorn launch exit: $?"
