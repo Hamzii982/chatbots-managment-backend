@@ -38,23 +38,43 @@ jobs:
         shell: powershell
         run: |
             $remoteCmd = @'
+            exec > /tmp/deploy-debug.log 2>&1
             set -x
+            echo "=== START $(date) ==="
+            
             mkdir -p ${{ secrets.APP_PATH_TESTING }}
             rsync -a --delete --exclude='venv' --exclude='.env' /tmp/fastapi-app-testing/ ${{ secrets.APP_PATH_TESTING }}/
+            echo "rsync exit: $?"
+            
             rm -rf /tmp/fastapi-app-testing
             cd ${{ secrets.APP_PATH_TESTING }}
+            
             test -d venv || /usr/local/bin/python3.12 -m venv venv
+            echo "venv setup exit: $?"
+            
             source venv/bin/activate
-            pip install -r requirements.txt --quiet
-
-            pkill -9 -f 'uvicorn app.main:app.*8089' || true
+            pip install -r requirements.txt
+            echo "pip install exit: $?"
+            
+            pkill -9 -f 'uvicorn app.main:app.*8089'
+            echo "pkill exit: $?"
+            
             sleep 2
             setsid nohup venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8089 > app-testing.log 2>&1 < /dev/null &
-            disown
+            echo "uvicorn launch exit: $?"
+            
             sleep 3
-            echo "---- last 30 lines of app log ----"
-            tail -n 30 app-testing.log
-            curl -sf http://localhost:8089/ -o /dev/null && echo "Testing instance is up on 8089" || echo "WARNING: instance may not have started, check app-testing.log"
+            echo "=== app-testing.log ==="
+            cat app-testing.log
+            echo "=== process check ==="
+            ps aux | grep uvicorn
+            echo "=== curl check ==="
+            curl -v http://localhost:8089/
+            
+            echo "=== END $(date) ==="
+            exit 0
             '@
             $remoteCmd = $remoteCmd.Replace("`r`n", "`n")
             ssh -i "$env:KEY_PATH" -p ${{ secrets.SERVER_PORT }} -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} $remoteCmd
+            Write-Output "---- Remote debug log ----"
+            ssh -i "$env:KEY_PATH" -p ${{ secrets.SERVER_PORT }} -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "cat /tmp/deploy-debug.log"
