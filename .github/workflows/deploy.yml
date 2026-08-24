@@ -51,7 +51,9 @@ jobs:
             sleep 2
             setsid nohup venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8089 > app-testing.log 2>&1 < /dev/null &
             disown
-            sleep 2
+            sleep 3
+            echo "---- last 30 lines of app log ----"
+            tail -n 30 app-testing.log
             curl -sf http://localhost:8089/ -o /dev/null && echo "Testing instance is up on 8089" || echo "WARNING: instance may not have started, check app-testing.log"
             '@
             $remoteCmd = $remoteCmd.Replace("`r`n", "`n")
