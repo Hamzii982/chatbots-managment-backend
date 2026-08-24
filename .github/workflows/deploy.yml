@@ -40,20 +40,19 @@ jobs:
             $remoteCmd = @'
             set -e
             mkdir -p ${{ secrets.APP_PATH_TESTING }}
-            rsync -a --delete --exclude="venv" --exclude=".env" /tmp/fastapi-app-testing/ ${{ secrets.APP_PATH_TESTING }}/
+            rsync -a --delete --exclude='venv' --exclude='.env' /tmp/fastapi-app-testing/ ${{ secrets.APP_PATH_TESTING }}/
             rm -rf /tmp/fastapi-app-testing
             cd ${{ secrets.APP_PATH_TESTING }}
             test -d venv || /usr/local/bin/python3.12 -m venv venv
             source venv/bin/activate
             pip install -r requirements.txt --quiet
             
-            # Target the running Uvicorn process directly
-            pkill -9 -f "uvicorn app.main:app.*8089" || true
+            pkill -9 -f 'uvicorn app.main:app.*8089' || true
             sleep 2
             setsid nohup venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8089 > app-testing.log 2>&1 < /dev/null &
             disown
             sleep 2
             curl -sf http://localhost:8089/ -o /dev/null && echo "Testing instance is up on 8089" || echo "WARNING: instance may not have started, check app-testing.log"
             '@
-            $remoteCmd =$remoteCmd.Replace("`r`n", "`n")
+            $remoteCmd = $remoteCmd.Replace("`r`n", "`n")
             ssh -i "$env:KEY_PATH" -p ${{ secrets.SERVER_PORT }} -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} $remoteCmd
