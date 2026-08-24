@@ -1,5 +1,5 @@
 # .github/workflows/deploy-testing.yml
-name: Deploy to Testing (port 8080)
+name: Deploy to Testing (port 8089)
 
 on:
     push:
@@ -48,12 +48,12 @@ jobs:
             pip install -r requirements.txt --quiet
             
             # Target the running Uvicorn process directly
-            pkill -9 -f "uvicorn app.main:app.*8080" || true
+            pkill -9 -f "uvicorn app.main:app.*8089" || true
             sleep 2
-            setsid nohup venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8080 > app-testing.log 2>&1 < /dev/null &
+            setsid nohup venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8089 > app-testing.log 2>&1 < /dev/null &
             disown
             sleep 2
-            curl -sf http://localhost:8080/ -o /dev/null && echo "Testing instance is up on 8080" || echo "WARNING: instance may not have started, check app-testing.log"
+            curl -sf http://localhost:8089/ -o /dev/null && echo "Testing instance is up on 8089" || echo "WARNING: instance may not have started, check app-testing.log"
             '@
             $remoteCmd =$remoteCmd.Replace("`r`n", "`n")
             ssh -i "$env:KEY_PATH" -p ${{ secrets.SERVER_PORT }} -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} $remoteCmd
