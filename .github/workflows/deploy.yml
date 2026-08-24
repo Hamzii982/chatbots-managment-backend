@@ -42,6 +42,8 @@ jobs:
             set -x
             echo "=== START $(date) ==="
             
+            export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+            
             mkdir -p ${{ secrets.APP_PATH_TESTING }}
             rsync -a --delete --exclude='venv' --exclude='.env' /tmp/fastapi-app-testing/ ${{ secrets.APP_PATH_TESTING }}/
             echo "rsync exit: $?"
@@ -53,25 +55,51 @@ jobs:
             echo "venv setup exit: $?"
             
             source venv/bin/activate
-            pip install -r requirements.txt
+            pip install --upgrade pip setuptools wheel --quiet
+            pip install -r requirements.txt --quiet
             echo "pip install exit: $?"
             
-            sleep 2
-            setsid nohup venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8089 > app-testing.log 2>&1 < /dev/null &
+            # Target ONLY port 8089 safely without pkill syntax issues
+            TARGET_PID=$(netstat -nlp 2>/dev/null | grep ':8089 ' | awk '{print $7}' | cut -d'/' -f1)
+            if [ -n "$TARGET_PID" ]; then
+            echo "Killing process $TARGET_PID on port 8089"
+            kill -9 $TARGET_PID 2>/dev/null || true
+            fi
+            
+            sleep 1
+            
+            # Launch Uvicorn in background
+            nohup venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8089 > app-testing.log 2>&1 < /dev/null &
             echo "uvicorn launch exit: $?"
             
-            sleep 3
+            echo "=== Polling for server boot (up to 15s) ==="
+            SUCCESS=0
+            for i in $(seq 1 15); do
+            if curl -s http://127.0.0.1:8089/ -o /dev/null; then
+                SUCCESS=1
+                break
+            fi
+            sleep 1
+            done
+            
             echo "=== app-testing.log ==="
             cat app-testing.log
+            
             echo "=== process check ==="
             ps aux | grep uvicorn
-            echo "=== curl check ==="
-            curl -v http://localhost:8089/
+            
+            if [ $SUCCESS -eq 1 ]; then
+            echo "SUCCESS: Server is up on port 8089!"
+            else
+            echo "ERROR: Server failed to respond on 127.0.0.1:8089 within 15 seconds."
+            exit 1
+            fi
             
             echo "=== END $(date) ==="
-            exit 0
             '@
+            
             $remoteCmd = $remoteCmd.Replace("`r`n", "`n")
-            ssh -i "$env:KEY_PATH" -p ${{ secrets.SERVER_PORT }} -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} $remoteCmd
+            ssh -i "$env:KEY_PATH" -p ${{ secrets.SERVER_PORT }} -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "$remoteCmd"
+            
             Write-Output "---- Remote debug log ----"
             ssh -i "$env:KEY_PATH" -p ${{ secrets.SERVER_PORT }} -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "cat /tmp/deploy-debug.log"
