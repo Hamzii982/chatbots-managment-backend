@@ -21,7 +21,7 @@ jobs:
                 icacls $keyPath /inheritance:r
                 icacls $keyPath /grant:r "$($env:USERNAME):(R)"
                 echo "KEY_PATH=$keyPath" >> $env:GITHUB_ENV
-                env:
+            env:
                 SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
 
           - name: Write deploy script
