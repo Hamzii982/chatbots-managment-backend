@@ -1,0 +1,131 @@
+# .github/workflows/deploy-production.yml
+name: Deploy to Production
+
+on:
+    push:
+        tags:
+        - 'v*.*.*'
+
+jobs:
+    deploy:
+        runs-on: self-hosted
+        steps:
+          - name: Checkout tagged commit
+            uses: actions/checkout@v4
+
+          - name: Write SSH key to file
+            shell: powershell
+            run: |
+                $keyPath = "$env:RUNNER_TEMP\deploy_key"
+                [System.IO.File]::WriteAllText($keyPath, ($env:SSH_KEY -replace "`r", "") + "`n", [System.Text.Encoding]::ASCII)
+                icacls $keyPath /inheritance:r
+                icacls $keyPath /grant:r "$($env:USERNAME):(R)"
+                echo "KEY_PATH=$keyPath" >> $env:GITHUB_ENV
+                env:
+                SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+
+          - name: Write deploy script
+            shell: powershell
+            run: |
+                $scriptContent = @'
+                #!/bin/bash
+                exec > /tmp/prod-deploy-debug.log 2>&1
+                set -x
+                echo "=== PRODUCTION DEPLOY START $(date) ==="
+
+                export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+                APP_PATH="$1"
+                BACKUP_PATH="$2"
+                PORT="$3"
+                TAG="$4"
+
+                mkdir -p "$APP_PATH"
+                mkdir -p "$BACKUP_PATH"
+
+                # --- Backup current production folder before touching anything ---
+                if [ -d "$APP_PATH" ] && [ "$(ls -A "$APP_PATH" 2>/dev/null)" ]; then
+                    BACKUP_NAME="backup_${TAG}_$(date +%Y%m%d_%H%M%S)"
+                    echo "Backing up current production to $BACKUP_PATH/$BACKUP_NAME"
+                    cp -a "$APP_PATH" "$BACKUP_PATH/$BACKUP_NAME"
+                    echo "backup exit: $?"
+
+                    # Keep only the 5 most recent backups
+                    cd "$BACKUP_PATH"
+                    ls -1dt backup_*/ 2>/dev/null | tail -n +6 | xargs -r rm -rf
+                else
+                    echo "No existing production deployment found, skipping backup"
+                fi
+
+                # --- Sync new code in ---
+                rsync -a --delete --exclude='venv' --exclude='.env' /tmp/fastapi-app-prod/ "$APP_PATH"/
+                echo "rsync exit: $?"
+                rm -rf /tmp/fastapi-app-prod
+
+                cd "$APP_PATH"
+
+                test -d venv || /usr/local/bin/python3.12 -m venv venv
+                echo "venv setup exit: $?"
+
+                source venv/bin/activate
+                pip install --upgrade pip setuptools wheel --quiet
+                pip install -r requirements.txt --quiet
+                echo "pip install exit: $?"
+
+                # --- Stop the currently running production instance on this port ---
+                TARGET_PID=$(netstat -nlp 2>/dev/null | grep ":${PORT} " | awk '{print $7}' | cut -d'/' -f1)
+                if [ -n "$TARGET_PID" ]; then
+                    echo "Stopping current production process $TARGET_PID on port $PORT"
+                    kill -9 "$TARGET_PID" 2>/dev/null || true
+                    sleep 2
+                else
+                    echo "No process currently running on port $PORT"
+                fi
+
+                # --- Launch new production instance ---
+                PYTHONUNBUFFERED=1 nohup venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port "$PORT" > production.log 2>&1 < /dev/null &
+                echo "uvicorn launch exit: $?"
+
+                echo "=== Polling for server boot (up to 90s) ==="
+                SUCCESS=0
+                for i in $(seq 1 90); do
+                    if curl -s http://127.0.0.1:"$PORT"/ -o /dev/null; then
+                    SUCCESS=1
+                    break
+                    fi
+                    sleep 1
+                done
+
+                echo "=== production.log ==="
+                cat production.log
+                echo "=== process check ==="
+                ps aux | grep uvicorn
+
+                if [ $SUCCESS -eq 1 ]; then
+                    echo "SUCCESS: Production is up on port $PORT (tag $TAG)"
+                else
+                    echo "ERROR: Production failed to respond on 127.0.0.1:$PORT within 90 seconds."
+                    echo "Latest backup available at: $BACKUP_PATH (see above for name) for manual rollback"
+                    exit 1
+                fi
+                echo "=== END $(date) ==="
+                '@
+                $scriptContent = $scriptContent.Replace("`r`n", "`n")
+                [System.IO.File]::WriteAllText("$PWD\deploy-prod.sh", $scriptContent)
+
+          - name: Prepare remote temp directory
+            shell: powershell
+            run: |
+                ssh -i "$env:KEY_PATH" -p ${{ secrets.SERVER_PORT }} -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "rm -rf /tmp/fastapi-app-prod && mkdir -p /tmp/fastapi-app-prod"
+
+          - name: Copy deploy script and app to server
+            shell: powershell
+            run: |
+                scp -O -i "$env:KEY_PATH" -P ${{ secrets.SERVER_PORT }} -o StrictHostKeyChecking=no deploy-prod.sh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/tmp/deploy-prod.sh
+                scp -O -i "$env:KEY_PATH" -P ${{ secrets.SERVER_PORT }} -o StrictHostKeyChecking=no -r .\* ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/tmp/fastapi-app-prod
+
+          - name: Run production deploy
+            shell: powershell
+            run: |
+                ssh -i "$env:KEY_PATH" -p ${{ secrets.SERVER_PORT }} -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "chmod +x /tmp/deploy-prod.sh; bash /tmp/deploy-prod.sh ${{ secrets.APP_PATH_PROD }} ${{ secrets.BACKUP_PATH_PROD }} 8000 ${{ github.ref_name }}"
+                Write-Output "---- Remote deploy log ----"
+                ssh -i "$env:KEY_PATH" -p ${{ secrets.SERVER_PORT }} -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "cat /tmp/prod-deploy-debug.log"
