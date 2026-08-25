@@ -35,9 +35,9 @@ jobs:
             scp -O -i "$env:KEY_PATH" -P ${{ secrets.SERVER_PORT }} -o StrictHostKeyChecking=no -r .\* ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/tmp/fastapi-app-testing
 
       - name: Write deploy script
-        shell: bash
+        shell: powershell
         run: |
-            cat > deploy.sh << 'SCRIPT_EOF'
+            $scriptContent = @'
             #!/bin/bash
             exec > /tmp/deploy-debug.log 2>&1
             set -x
@@ -89,13 +89,15 @@ jobs:
             ps aux | grep uvicorn
 
             if [ $SUCCESS -eq 1 ]; then
-            echo "SUCCESS: Server is up on port $PORT!"
+                echo "SUCCESS: Server is up on port $PORT!"
             else
-            echo "ERROR: Server failed to respond on 127.0.0.1:$PORT within 15 seconds."
+                echo "ERROR: Server failed to respond on 127.0.0.1:$PORT within 15 seconds."
             fi
             echo "=== END $(date) ==="
-            SCRIPT_EOF
-    
+            '@
+            $scriptContent = $scriptContent.Replace("`r`n", "`n")
+            [System.IO.File]::WriteAllText("$PWD\deploy.sh", $scriptContent)
+
       - name: Copy deploy script and app to server
         shell: powershell
         run: |
