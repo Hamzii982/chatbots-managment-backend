@@ -5,6 +5,7 @@ A powerful, enterprise-grade RAG-based Chatbot Management System built with Fast
 ## 🌟 Features
 
 ### Core Capabilities
+
 - **Multi-Model Support**: Seamlessly integrate with OpenAI, Anthropic, and other LLM providers
 - **RAG Pipeline**: Complete retrieval-augmented generation system with configurable components
 - **Document Management**: Upload and process PDF documents with intelligent chunking
@@ -17,6 +18,7 @@ A powerful, enterprise-grade RAG-based Chatbot Management System built with Fast
 - **Admin Panel**: Admin initialization and management capabilities
 
 ### Technical Highlights
+
 - **Production-Ready**: Comprehensive error handling, validation, and logging
 - **CORS Support**: Configurable cross-origin requests for seamless frontend integration
 - **API Documentation**: Auto-generated interactive API docs (Swagger/OpenAPI)
@@ -27,7 +29,8 @@ A powerful, enterprise-grade RAG-based Chatbot Management System built with Fast
 ## 🏗️ Architecture
 
 ### Directory Structure
-```
+
+```txt
 app/
 ├── api/
 │   └── routes/              # API endpoint definitions
@@ -95,12 +98,14 @@ uploads/
 ## 🚀 Getting Started
 
 ### 1. Clone the Repository
+
 ```bash
 git clone <repository-url>
 cd assistant-backend
 ```
 
 ### 2. Create Virtual Environment
+
 ```bash
 # Windows
 python -m venv venv
@@ -112,13 +117,15 @@ source venv/bin/activate
 ```
 
 ### 3. Install Dependencies
+
 ```bash
 pip install -r requirements.txt
 ```
 
 ### 4. Set Up Database
 
-**Option A: Docker (Recommended)**
+### **Option A: Docker (Recommended)**
+
 ```bash
 docker run --name ai-postgres \
   -e POSTGRES_USER=user \
@@ -128,7 +135,8 @@ docker run --name ai-postgres \
   -d postgres
 ```
 
-**Option B: Local PostgreSQL**
+### **Option B: Local PostgreSQL**
+
 - Ensure PostgreSQL is running on your system
 - Create a database named `ai_platform`
 - Update the `DATABASE_URL` in your `.env` file
@@ -136,6 +144,7 @@ docker run --name ai-postgres \
 ### 5. Configure Environment Variables
 
 Create a `.env` file in the project root:
+
 ```env
 # Database
 DATABASE_URL=postgresql://user:password@localhost:5432/ai_platform
@@ -154,27 +163,32 @@ ANTHROPIC_API_KEY=your-anthropic-api-key-here
 ```
 
 ### 6. Initialize Database
+
 The database tables are automatically created on application startup via SQLAlchemy's metadata.
 
 ### 7. Run the Application
+
 ```bash
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 The application will be available at:
-- **API**: http://localhost:8000
-- **API Documentation**: http://localhost:8000/api/docs
-- **ReDoc**: http://localhost:8000/api/redoc
-- **Health Check**: http://localhost:8000/system/health
+
+- **API**: <http://localhost:8000>
+- **API Documentation**: <http://localhost:8000/api/docs>
+- **ReDoc**: <http://localhost:8000/api/redoc>
+- **Health Check**: <http://localhost:8000/system/health>
 
 ## 📚 API Endpoints Overview
 
 ### Authentication
+
 - `POST /auth/login` - User login
 - `POST /auth/register` - User registration
 - `POST /auth/refresh` - Refresh access token
 
 ### Chatbots
+
 - `GET /chatbots` - List all chatbots
 - `POST /chatbots` - Create new chatbot
 - `GET /chatbots/{id}` - Get chatbot details
@@ -185,16 +199,19 @@ The application will be available at:
 - `WebSocket /chatbots/{id}/stream` - Stream real-time responses
 
 ### Models
+
 - `GET /models` - List available LLM models
 - `POST /models` - Configure new model
 - `PUT /models/{id}` - Update model configuration
 
 ### Statistics & Usage
+
 - `GET /statistics` - Get system statistics
 - `GET /usage` - Get user usage metrics
 - `GET /usage/chatbot/{id}` - Get chatbot-specific usage
 
 ### System
+
 - `GET /system/health` - Health check endpoint
 - `GET /system/info` - System information
 
@@ -210,7 +227,9 @@ The application will be available at:
 ## 🎛️ Configuration Options
 
 ### Model Configuration
+
 Each chatbot supports granular RAG configuration:
+
 - **Chunk Size**: Document chunk size for optimal retrieval (default: 500)
 - **Chunk Overlap**: Overlap between chunks (default: 50)
 - **Top K**: Number of documents to retrieve (default: 3)
@@ -219,17 +238,20 @@ Each chatbot supports granular RAG configuration:
 - **Memory**: Toggle short-term and long-term memory
 
 ### Supported Retrievers
+
 - **Vector Retriever**: Semantic search using embeddings
 - **Hybrid Retriever**: Combination of semantic and BM25 search
 - **Mock Retriever**: Testing and development
 
 ### Supported Rerankers
+
 - **Simple Reranker**: Basic relevance scoring
 - **Cross-Encoder Reranker**: Fine-tuned semantic relevance ranking
 
 ## 🐳 Docker Support
 
 Build and run with Docker:
+
 ```bash
 docker build -t ai-assistant-backend .
 docker run -p 8000:8000 \
@@ -241,6 +263,7 @@ docker run -p 8000:8000 \
 ## 📊 Database Schema
 
 ### Core Tables
+
 - **users**: User accounts and authentication
 - **chatbots**: Chatbot configurations
 - **models**: LLM model configurations
@@ -251,13 +274,16 @@ docker run -p 8000:8000 \
 ## 🔧 Development
 
 ### Code Structure
+
 - **Services**: Business logic and RAG pipeline (`services/`)
 - **Routes**: API endpoint handlers (`api/routes/`)
 - **Models**: Database ORM models (`models/`)
 - **Schemas**: Request/response validation (`schemas/`)
 
 ### Logging
+
 The application uses Python's standard logging with INFO level by default. Output includes:
+
 - Request method and path
 - Response status codes
 - Validation errors
@@ -267,20 +293,24 @@ The application uses Python's standard logging with INFO level by default. Outpu
 
 ### Common Issues
 
-**Database Connection Error**
+### **Database Connection Error**
+
 - Verify PostgreSQL is running
 - Check DATABASE_URL in `.env`
 - Ensure PostgreSQL user/password are correct
 
-**API Key Errors**
+### **API Key Errors**
+
 - Verify OPENAI_API_KEY and ANTHROPIC_API_KEY are set in `.env`
 - Check API key validity in provider dashboards
 
-**Vector Store Issues**
+### **Vector Store Issues**
+
 - Clear `.vectorstores/` directory if corrupted
 - Application will recreate vector stores on next chatbot interaction
 
-**CORS Errors**
+### **CORS Errors**
+
 - Verify frontend URL is in ALLOWED_ORIGINS in `.env`
 - Check that frontend is using correct API base URL
 
@@ -291,9 +321,17 @@ The application uses Python's standard logging with INFO level by default. Outpu
 - **Memory Management**: Efficient garbage collection for vector store operations
 - **Pooled Connections**: SQLAlchemy manages database connection pooling
 
+## Deployment Workflow:
+
+- Commit changes in main branch.
+- git tag v****
+- git push origin v****
+- git push
+
 ## 🤝 Contributing
 
 Contributions are welcome! Please:
+
 1. Create a feature branch (`git checkout -b feature/amazing-feature`)
 2. Commit changes (`git commit -m 'Add amazing feature'`)
 3. Push to branch (`git push origin feature/amazing-feature`)
@@ -306,10 +344,11 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## 📞 Support
 
 For issues, feature requests, or questions:
+
 - Open an issue on GitHub
 - Check existing documentation in `/api/docs`
 - Review error logs for debugging information
 
 ---
 
-**Made with ❤️ for intelligent chatbot management**
+### **Made with ❤️ for intelligent chatbot management**
